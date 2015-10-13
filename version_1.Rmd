@@ -1,0 +1,63 @@
+---
+title: "Water gauge - kaggle competition"
+author: "rheindata GmbH"
+date: "26. September 2015"
+output: html_document
+---
+
+## Description
+This is the acompaning documentation for the kaggle water gauge competition.
+The aim of this competition is it to make predictions about the amount of water that will fall at certain spaces in the united states. 
+For this prediction data from several places were collected about a amount of time. 
+detailed descriptions could be found under the following link: XXX
+
+A special topic in this competition is the falsified data that is providd in the competition. It is crucial for this competition to rightify the data for getting correct results. 
+
+Data should be scanned to find values that are not in specified ranges and also complete cases should be checked. 
+
+## Loading the stuff
+
+```{r}
+#train = data.table(read.csv("./Raw_Data/train.csv", header = TRUE))
+test = data.table(read.csv("./Raw_Data/test.csv", header = TRUE))
+
+library(h2o)
+library(data.table)
+library(Metrics)
+h2o.init(nthreads=-1)
+
+## use data table to only read the Estimated, Ref, and Id fields
+print(paste("reading training file:",Sys.time()))
+train<-fread("./Raw_Data/train.csv",select=c(1,4,24))
+
+#Cut off outliers of Expected >= 70
+train <- subset(train, Expected < 69)
+
+trainHex<-as.h2o(train[,.(
+  meanRef = mean(Ref,na.rm=T),
+  sumRef = sum(Ref,na.rm=T),
+  records = .N,
+  naCounts = sum(is.na(Ref)),
+  target = log1p(mean(Expected))
+),Id][records>naCounts,],destination_frame="train.hex")
+
+test<-fread("../input/test.csv",select=c(1,4))
+testHex<-as.h2o(test[,.(
+  meanRef = mean(Ref,na.rm=T),
+  sumRef = sum(Ref,na.rm=T),
+  records = .N,
+  naCounts = sum(is.na(Ref))
+),Id],destination_frame="test.hex")
+
+regression_model <- h2o.deeplearning(x=1:5, y=6, training_frame=trainHex, 
+                                     hidden=c(10,10,10), epochs=10000, activation="RectifierWithDropout")
+
+predictions <- h2o.predict(regression_model, testHex)
+
+submission <-fread("../input/sample_solution.csv")
+predictions<-as.data.frame(predictions)
+submission$Expected <- expm1(as.data.frame(predictions)$predict)*0.5 + submission$Expected*0.5
+
+write.csv(submission,"../output/deeplearning_v1.csv",row.names=F)
+```
+
